@@ -7,7 +7,7 @@ class RandHorizontalFlip(object):
         # r_img: H x W x C (numpy)
         d_img_org = sample['d_img_org']
         d_img_scale_1 = sample['d_img_scale_1']
-        d_img_scale_2 = sample['d_img_scale_2']
+        # d_img_scale_2 = sample['d_img_scale_2']
         score = sample['score']
 
         prob_lr = np.random.random()
@@ -15,10 +15,10 @@ class RandHorizontalFlip(object):
         if prob_lr > 0.5:
             d_img_org = np.fliplr(d_img_org).copy()
             d_img_scale_1 = np.fliplr(d_img_scale_1).copy()
-            d_img_scale_2 = np.fliplr(d_img_scale_2).copy()
+            # d_img_scale_2 = np.fliplr(d_img_scale_2).copy()
 
 
-        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'd_img_scale_2': d_img_scale_2, 'score': score}
+        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'score': score}
         return sample
 
 
@@ -31,7 +31,7 @@ class Normalize(object):
         # r_img: H x W x C (numpy)
         d_img_org = sample['d_img_org']
         d_img_scale_1 = sample['d_img_scale_1']
-        d_img_scale_2 = sample['d_img_scale_2']
+        # d_img_scale_2 = sample['d_img_scale_2']
         score = sample['score']
 
         d_img_org[:, :, 0] = (d_img_org[:, :, 0] - self.mean[0]) / self.var[0]
@@ -42,11 +42,11 @@ class Normalize(object):
         d_img_scale_1[:, :, 1] = (d_img_scale_1[:, :, 1] - self.mean[1]) / self.var[1]
         d_img_scale_1[:, :, 2] = (d_img_scale_1[:, :, 2] - self.mean[2]) / self.var[2]
         
-        d_img_scale_2[:, :, 0] = (d_img_scale_2[:, :, 0] - self.mean[0]) / self.var[0]
-        d_img_scale_2[:, :, 1] = (d_img_scale_2[:, :, 1] - self.mean[1]) / self.var[1]
-        d_img_scale_2[:, :, 2] = (d_img_scale_2[:, :, 2] - self.mean[2]) / self.var[2]
+        # d_img_scale_2[:, :, 0] = (d_img_scale_2[:, :, 0] - self.mean[0]) / self.var[0]
+        # d_img_scale_2[:, :, 1] = (d_img_scale_2[:, :, 1] - self.mean[1]) / self.var[1]
+        # d_img_scale_2[:, :, 2] = (d_img_scale_2[:, :, 2] - self.mean[2]) / self.var[2]
 
-        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'd_img_scale_2': d_img_scale_2, 'score': score}
+        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'score': score}
         return sample
 
 
@@ -55,7 +55,7 @@ class ToTensor(object):
         # r_img: H x W x C (numpy) -> C x H x W (torch tensor)
         d_img_org = sample['d_img_org']
         d_img_scale_1 = sample['d_img_scale_1']
-        d_img_scale_2 = sample['d_img_scale_2']
+        # d_img_scale_2 = sample['d_img_scale_2']
         score = sample['score']
 
         d_img_org = np.transpose(d_img_org, (2, 0, 1))
@@ -64,12 +64,12 @@ class ToTensor(object):
         d_img_scale_1 = np.transpose(d_img_scale_1, (2, 0, 1))
         d_img_scale_1 = torch.from_numpy(d_img_scale_1)
 
-        d_img_scale_2 = np.transpose(d_img_scale_2, (2, 0, 1))
-        d_img_scale_2 = torch.from_numpy(d_img_scale_2)
+        # d_img_scale_2 = np.transpose(d_img_scale_2, (2, 0, 1))
+        # d_img_scale_2 = torch.from_numpy(d_img_scale_2)
 
         score = torch.from_numpy(score)
 
-        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'd_img_scale_2': d_img_scale_2, 'score': score}
+        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'score': score}
         return sample
 
 

@@ -19,14 +19,14 @@ def main():
         'num_workers': 8,
 
         # data
-        'db_name': 'KonIQ-10k',                                     # database type
-        'db_path': '.',      # root path of database
-        'txt_file_name': './IQA_list/koniq-10k.txt',                # list of images in the database
+        'db_name': 'WIN5-LID',                                     # database type
+        'db_path': '/Users/mianmaokuchuanma/database/win5-lid/win5-lid',      # root path of database
+        'txt_file_name': './IQA_list/WIN5-LID-real.txt',                # list of images in the database
         'train_size': 0.8,                                          # train/vaildation separation ratio
         'scenes': 'all',                                            # using all scenes
         'scale_1': 384,
-        'scale_2': 224,
-        'batch_size': 8,
+        # 'scale_2': 224,
+        'batch_size': 2,
         'patch_size': 32,
 
         # ViT structure
@@ -72,7 +72,7 @@ def main():
     # data selection
     if config.db_name == 'KonIQ-10k':
         from data.koniq import IQADataset
-    elif config.db_name == 'WIN5':
+    elif config.db_name == 'WIN5-LID':
         from data.win5lid import IQADataset
 
 
@@ -148,14 +148,14 @@ def main():
         'num_workers': 8,
 
         # data
-        'db_name': 'KonIQ-10k',                                     # database type
-        'db_path': './',      # root path of database
-        'txt_file_name': './IQA_list/koniq-10k.txt',                # list of images in the database
+        'db_name': 'WIN5-LID',                                     # database type
+        'db_path': '/Users/mianmaokuchuanma/database/win5-lid/win5-lid',      # root path of database
+        'txt_file_name': './IQA_list/WIN5-LID-real.txt',                # list of images in the database
         'train_size': 0.8,                                          # train/vaildation separation ratio
         'scenes': 'all',                                            # using all scenes
         'scale_1': 384,
         # 'scale_2': 224,
-        'batch_size': 8,
+        'batch_size': 2,
         'patch_size': 32,
 
         # ViT structure
@@ -201,6 +201,8 @@ def main():
     # data selection
     if config.db_name == 'KonIQ-10k':
         from data.koniq import IQADataset
+    elif config.db_name == 'WIN5-LID':
+        from data.win5lid import IQADataset
 
     # dataset separation (8:2)
     train_scene_list, test_scene_list = RandShuffle(config)
@@ -212,7 +214,7 @@ def main():
         db_path=config.db_path,
         txt_file_name=config.txt_file_name,
         scale_1=config.scale_1,
-        scale_2=config.scale_2,
+        # scale_2=config.scale_2,
         transform=transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), RandHorizontalFlip(), ToTensor()]),
         train_mode=True,
         scene_list=train_scene_list,
@@ -222,7 +224,7 @@ def main():
         db_path=config.db_path,
         txt_file_name=config.txt_file_name,
         scale_1=config.scale_1,
-        scale_2=config.scale_2,
+        # scale_2=config.scale_2,
         transform= transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), ToTensor()]),
         train_mode=False,
         scene_list=test_scene_list,

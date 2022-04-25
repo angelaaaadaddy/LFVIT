@@ -155,7 +155,7 @@ def resnet50_backbone(**kwargs):
     
     # load pre-trained weights
     # save_model = model_zoo.load_url(model_urls['resnet50'])
-    save_model = torch.load('./model/resnet50.pth')
+    save_model = torch.load('/Users/mianmaokuchuanma/database/model/resnet50.pth')
     model_dict = model.state_dict()
     state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
     model_dict.update(state_dict)

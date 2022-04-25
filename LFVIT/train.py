@@ -1,243 +1,273 @@
-# Copyright 2021 Google LLC.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import functools
 import os
-import time
-
-from absl import logging
-from clu import metric_writers
-from clu import periodic_actions
-import flax
-from flax.training import checkpoints as flax_checkpoints
-import jax
-import jax.numpy as jnp
-import ml_collections
-import numpy as np
-import tensorflow as tf
-
-from vit_jax import checkpoint
-from vit_jax import input_pipeline
-from vit_jax import models
-from vit_jax import momentum_clip
-from vit_jax import utils
+import torch
+from torchvision import transforms
+from torch.utils.data import DataLoader
 
 
-def make_update_fn(*, apply_fn, accum_steps, lr_fn):
-  """Returns update step for data parallel training."""
-
-  def update_fn(opt, step, batch, rng):
-
-    _, new_rng = jax.random.split(rng)
-    # Bind the rng key to the device id (which is unique across hosts)
-    # Note: This is only used for multi-host training (i.e. multiple computers
-    # each with multiple accelerators).
-    dropout_rng = jax.random.fold_in(rng, jax.lax.axis_index('batch'))
-
-    def cross_entropy_loss(*, logits, labels):
-      logp = jax.nn.log_softmax(logits)
-      return -jnp.mean(jnp.sum(logp * labels, axis=1))
-
-    def loss_fn(params, images, labels):
-      logits = apply_fn(
-          dict(params=params),
-          rngs=dict(dropout=dropout_rng),
-          inputs=images,
-          train=True)
-      return cross_entropy_loss(logits=logits, labels=labels)
-
-    l, g = utils.accumulate_gradient(
-        jax.value_and_grad(loss_fn), opt.target, batch['image'], batch['label'],
-        accum_steps)
-    g = jax.tree_map(lambda x: jax.lax.pmean(x, axis_name='batch'), g)
-    l = jax.lax.pmean(l, axis_name='batch')
-
-    opt = opt.apply_gradient(g, learning_rate=lr_fn(step))
-    return opt, l, new_rng
-
-  return jax.pmap(update_fn, axis_name='batch', donate_argnums=(0,))
+from option.config import Config
+from model.model_main import IQARegression
+from model.backbone import resnet50_backbone
+from trainer import train_epoch, eval_epoch
+from utils.util import RandHorizontalFlip, Normalize, ToTensor, RandShuffle
 
 
-def train_and_evaluate(config: ml_collections.ConfigDict, workdir: str):
-  """Runs training interleaved with evaluation."""
+def main():
+    # config file
+    config = Config({
+        # device
+        'gpu_id': "0",                          # specify GPU number to use
+        'num_workers': 8,
 
-  # Setup input pipeline
-  dataset_info = input_pipeline.get_dataset_info(config.dataset, 'train')
+        # data
+        'db_name': 'KonIQ-10k',                                     # database type
+        'db_path': '.',      # root path of database
+        'txt_file_name': './IQA_list/koniq-10k.txt',                # list of images in the database
+        'train_size': 0.8,                                          # train/vaildation separation ratio
+        'scenes': 'all',                                            # using all scenes
+        'scale_1': 384,
+        'scale_2': 224,
+        'batch_size': 8,
+        'patch_size': 32,
 
-  ds_train, ds_test = input_pipeline.get_datasets(config)
-  batch = next(iter(ds_train))
-  logging.info(ds_train)
-  logging.info(ds_test)
+        # ViT structure
+        'n_enc_seq': 32*24 + 12*9,              # input feature map dimension (N = H*W) from backbone
+        'n_layer': 14,                          # number of encoder layers
+        'd_hidn': 384,                          # input channel of encoder (input: C x N)
+        'i_pad': 0,
+        'd_ff': 384,                            # feed forward hidden layer dimension
+        'd_MLP_head': 1152,                     # hidden layer of final MLP
+        'n_head': 6,                            # number of head (in multi-head attention)
+        'd_head': 384,                          # channel of each head -> same as d_hidn
+        'dropout': 0.1,                         # dropout ratio
+        'emb_dropout': 0.1,                     # dropout ratio of input embedding
+        'layer_norm_epsilon': 1e-12,
+        'n_output': 1,                          # dimension of output
+        'Grid': 10,                             # grid of 2D spatial embedding
 
-  # Build VisionTransformer architecture
-  model_cls = {'ViT': models.VisionTransformer,
-               'Mixer': models.MlpMixer}[config.get('model_type', 'ViT')]
-  model = model_cls(num_classes=dataset_info['num_classes'], **config.model)
+        # optimization & training parameters
+        'n_epoch': 100,                         # total training epochs
+        'learning_rate': 1e-4,                  # initial learning rate
+        'weight_decay': 0,                      # L2 regularization weight
+        'momentum': 0.9,                        # SGD momentum
+        'T_max': 3e4,                           # period (iteration) of cosine learning rate decay
+        'eta_min': 0,                           # minimum learning rate
+        'save_freq': 10,                        # save checkpoint frequency (epoch)
+        'val_freq': 5,                          # validation frequency (epoch)
 
-  def init_model():
-    return model.init(
-        jax.random.PRNGKey(0),
-        # Discard the "num_local_devices" dimension for initialization.
-        jnp.ones(batch['image'].shape[1:], batch['image'].dtype.name),
-        train=False)
 
-  # Use JIT to make sure params reside in CPU memory.
-  variables = jax.jit(init_model, backend='cpu')()
+        # load & save checkpoint
+        'snap_path': './weights',               # directory for saving checkpoint
+        'checkpoint': None,                     # load checkpoint
+    })
 
-  model_or_filename = config.get('model_or_filename')
-  if model_or_filename:
-    # Loading model from repo published with  "How to train your ViT? Data,
-    # Augmentation, and Regularization in Vision Transformers" paper.
-    # https://arxiv.org/abs/2106.10270
-    if '-' in model_or_filename:
-      filename = model_or_filename
+
+    # device setting
+    config.device = torch.device('cuda:%s' % config.gpu_id if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.is_available():
+        print('Using GPU %s' % config.gpu_id)
     else:
-      # Select best checkpoint from i21k pretraining by final upstream
-      # validation accuracy.
-      df = checkpoint.get_augreg_df(directory=config.pretrained_dir)
-      sel = df.filename.apply(
-          lambda filename: filename.split('-')[0] == model_or_filename)
-      best = df.loc[sel].query('ds=="i21k"').sort_values('final_val').iloc[-1]
-      filename = best.filename
-      logging.info('Selected fillename="%s" for "%s" with final_val=%.3f',
-                   filename, model_or_filename, best.final_val)
-    pretrained_path = os.path.join(config.pretrained_dir,
-                                   f'{config.model.name}.npz')
-  else:
-    # ViT / Mixer papers
-    filename = config.model.name
+        print('Using CPU')
 
-  pretrained_path = os.path.join(config.pretrained_dir, f'{filename}.npz')
-  if not tf.io.gfile.exists(pretrained_path):
-    raise ValueError(
-        f'Could not find "{pretrained_path}" - you can download models from '
-        '"gs://vit_models/imagenet21k" or directly set '
-        '--config.pretrained_dir="gs://vit_models/imagenet21k".')
-  params = checkpoint.load_pretrained(
-      pretrained_path=pretrained_path,
-      init_params=variables['params'],
-      model_config=config.model)
 
-  total_steps = config.total_steps
-  lr_fn = utils.create_learning_rate_schedule(total_steps, config.base_lr,
-                                              config.decay_type,
-                                              config.warmup_steps)
+    # data selection
+    if config.db_name == 'KonIQ-10k':
+        from data.koniq import IQADataset
+    elif config.db_name == 'WIN5':
+        from data.win5lid import IQADataset
 
-  update_fn_repl = make_update_fn(
-      apply_fn=model.apply, accum_steps=config.accum_steps, lr_fn=lr_fn)
-  infer_fn_repl = jax.pmap(functools.partial(model.apply, train=False))
 
-  # Create optimizer and replicate it over all TPUs/GPUs
-  opt = momentum_clip.Optimizer(
-      dtype=config.optim_dtype,
-      grad_norm_clip=config.grad_norm_clip).create(params)
+    # dataset separation (8:2)
+    train_scene_list, test_scene_list = RandShuffle(config)
+    print('number of train scenes: %d' % len(train_scene_list))
+    print('number of test scenes: %d' % len(test_scene_list))
 
-  initial_step = 1
-  opt, initial_step = flax_checkpoints.restore_checkpoint(
-      workdir, (opt, initial_step))
-  logging.info('Will start/continue training at initial_step=%d', initial_step)
+    # data load
+    train_dataset = IQADataset(
+        db_path=config.db_path,
+        txt_file_name=config.txt_file_name,
+        scale_1=config.scale_1,
+        # scale_2=config.scale_2,
+        transform=transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), RandHorizontalFlip(), ToTensor()]),
+        train_mode=True,
+        scene_list=train_scene_list,
+        train_size=config.train_size
+    )
+    test_dataset = IQADataset(
+        db_path=config.db_path,
+        txt_file_name=config.txt_file_name,
+        scale_1=config.scale_1,
+        # scale_2=config.scale_2,
+        transform= transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), ToTensor()]),
+        train_mode=False,
+        scene_list=test_scene_list,
+        train_size=config.train_size
+    )
+    train_loader = DataLoader(dataset=train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, drop_last=True, shuffle=True)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=config.batch_size, num_workers=config.num_workers, drop_last=True, shuffle=True)
 
-  opt_repl = flax.jax_utils.replicate(opt)
 
-  # Delete references to the objects that are not needed anymore
-  del opt
-  del params
+    # create model
+    model_backbone = resnet50_backbone().to(config.device)
+    model_transformer = IQARegression(config).to(config.device)
 
-  # Prepare the learning-rate and pre-fetch it to device to avoid delays.
-  update_rng_repl = flax.jax_utils.replicate(jax.random.PRNGKey(0))
 
-  # Setup metric writer & hooks.
-  writer = metric_writers.create_default_writer(workdir, asynchronous=False)
-  writer.write_hparams(config.to_dict())
-  hooks = [
-      periodic_actions.Profile(logdir=workdir),
-      periodic_actions.ReportProgress(
-          num_train_steps=total_steps, writer=writer),
-  ]
+    # loss function & optimization
+    criterion = torch.nn.L1Loss()
+    params = list(model_backbone.parameters()) + list(model_transformer.parameters())
+    optimizer = torch.optim.SGD(params, lr=config.learning_rate, weight_decay=config.weight_decay, momentum=config.momentum)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.T_max, eta_min=config.eta_min)
 
-  # Run training loop
-  logging.info('Starting training loop; initial compile can take a while...')
-  t0 = lt0 = time.time()
-  lstep = initial_step
-  for step, batch in zip(
-      range(initial_step, total_steps + 1),
-      input_pipeline.prefetch(ds_train, config.prefetch)):
 
-    with jax.profiler.StepTraceContext('train', step_num=step):
-      opt_repl, loss_repl, update_rng_repl = update_fn_repl(
-          opt_repl, flax.jax_utils.replicate(step), batch, update_rng_repl)
+    # load weights & optimizer
+    if config.checkpoint is not None:
+        checkpoint = torch.load(config.checkpoint)
+        model_backbone.load_state_dict(checkpoint['model_backbone_state_dict'])
+        model_transformer.load_state_dict(checkpoint['model_transformer_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        start_epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+    else:
+        start_epoch = 0
 
-    for hook in hooks:
-      hook(step)
+    # make directory for saving weights
+    if not os.path.exists(config.snap_path):
+        os.mkdir(config.snap_path)
 
-    if step == initial_step:
-      logging.info('First step took %.1f seconds.', time.time() - t0)
-      t0 = time.time()
-      lt0, lstep = time.time(), step
 
-    # Report training metrics
-    if config.progress_every and step % config.progress_every == 0:
-      img_sec_core_train = (config.batch * (step - lstep) /
-                            (time.time() - lt0)) / jax.device_count()
-      lt0, lstep = time.time(), step
-      writer.write_scalars(
-          step,
-          dict(
-              train_loss=float(flax.jax_utils.unreplicate(loss_repl)),
-              img_sec_core_train=img_sec_core_train))
-      done = step / total_steps
-      logging.info(f'Step: {step}/{total_steps} {100*done:.1f}%, '  # pylint: disable=logging-format-interpolation
-                   f'img/sec/core: {img_sec_core_train:.1f}, '
-                   f'ETA: {(time.time()-t0)/done*(1-done)/3600:.2f}h')
+    # train & validation
+    for epoch in range(start_epoch, config.n_epoch):
+        loss, rho_s, rho_p = train_epoch(config, epoch, model_transformer, model_backbone, criterion, optimizer, scheduler, train_loader)
 
-    # Run evaluation
-    if ((config.eval_every and step % config.eval_every == 0) or
-        (step == total_steps)):
+        if (epoch+1) % config.val_freq == 0:
+            loss, rho_s, rho_p = eval_epoch(config, epoch, model_transformer, model_backbone, criterion, test_loader)
+    # config file
+    config = Config({
+        # device
+        'gpu_id': "0",                          # specify GPU number to use
+        'num_workers': 8,
 
-      accuracies = []
-      lt0 = time.time()
-      for test_batch in input_pipeline.prefetch(ds_test, config.prefetch):
-        logits = infer_fn_repl(
-            dict(params=opt_repl.target), test_batch['image'])
-        accuracies.append(
-            (np.argmax(logits,
-                       axis=-1) == np.argmax(test_batch['label'],
-                                             axis=-1)).mean())
-      accuracy_test = np.mean(accuracies)
-      img_sec_core_test = (
-          config.batch_eval * ds_test.cardinality().numpy() /
-          (time.time() - lt0) / jax.device_count())
-      lt0 = time.time()
+        # data
+        'db_name': 'KonIQ-10k',                                     # database type
+        'db_path': './',      # root path of database
+        'txt_file_name': './IQA_list/koniq-10k.txt',                # list of images in the database
+        'train_size': 0.8,                                          # train/vaildation separation ratio
+        'scenes': 'all',                                            # using all scenes
+        'scale_1': 384,
+        # 'scale_2': 224,
+        'batch_size': 8,
+        'patch_size': 32,
 
-      lr = float(lr_fn(step))
-      logging.info(f'Step: {step} '  # pylint: disable=logging-format-interpolation
-                   f'Learning rate: {lr:.7f}, '
-                   f'Test accuracy: {accuracy_test:0.5f}, '
-                   f'img/sec/core: {img_sec_core_test:.1f}')
-      writer.write_scalars(
-          step,
-          dict(
-              accuracy_test=accuracy_test,
-              lr=lr,
-              img_sec_core_test=img_sec_core_test))
+        # ViT structure
+        'n_enc_seq': 32*24 + 12*9,        # input feature map dimension (N = H*W) from backbone
+        'n_layer': 14,                          # number of encoder layers
+        'd_hidn': 384,                          # input channel of encoder (input: C x N)
+        'i_pad': 0,
+        'd_ff': 384,                            # feed forward hidden layer dimension
+        'd_MLP_head': 1152,                     # hidden layer of final MLP
+        'n_head': 6,                            # number of head (in multi-head attention)
+        'd_head': 384,                          # channel of each head -> same as d_hidn
+        'dropout': 0.1,                         # dropout ratio
+        'emb_dropout': 0.1,                     # dropout ratio of input embedding
+        'layer_norm_epsilon': 1e-12,
+        'n_output': 1,                          # dimension of output
+        'Grid': 10,                             # grid of 2D spatial embedding
 
-    # Store checkpoint.
-    if ((config.checkpoint_every and step % config.eval_every == 0) or
-        step == total_steps):
-      checkpoint_path = flax_checkpoints.save_checkpoint(
-          workdir, (flax.jax_utils.unreplicate(opt_repl), step), step)
-      logging.info('Stored checkpoint at step %d to "%s"', step,
-                   checkpoint_path)
+        # optimization & training parameters
+        'n_epoch': 100,                         # total training epochs
+        'learning_rate': 1e-4,                  # initial learning rate
+        'weight_decay': 0,                      # L2 regularization weight
+        'momentum': 0.9,                        # SGD momentum
+        'T_max': 3e4,                           # period (iteration) of cosine learning rate decay
+        'eta_min': 0,                           # minimum learning rate
+        'save_freq': 10,                        # save checkpoint frequency (epoch)
+        'val_freq': 5,                          # validation frequency (epoch)
 
-  return flax.jax_utils.unreplicate(opt_repl)
+
+        # load & save checkpoint
+        'snap_path': './weights',               # directory for saving checkpoint
+        'checkpoint': None,                     # load checkpoint
+    })
+
+
+    # device setting
+    config.device = torch.device('cuda:%s' % config.gpu_id if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.is_available():
+        print('Using GPU %s' % config.gpu_id)
+    else:
+        print('Using CPU')
+
+
+    # data selection
+    if config.db_name == 'KonIQ-10k':
+        from data.koniq import IQADataset
+
+    # dataset separation (8:2)
+    train_scene_list, test_scene_list = RandShuffle(config)
+    print('number of train scenes: %d' % len(train_scene_list))
+    print('number of test scenes: %d' % len(test_scene_list))
+
+    # data load
+    train_dataset = IQADataset(
+        db_path=config.db_path,
+        txt_file_name=config.txt_file_name,
+        scale_1=config.scale_1,
+        scale_2=config.scale_2,
+        transform=transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), RandHorizontalFlip(), ToTensor()]),
+        train_mode=True,
+        scene_list=train_scene_list,
+        train_size=config.train_size
+    )
+    test_dataset = IQADataset(
+        db_path=config.db_path,
+        txt_file_name=config.txt_file_name,
+        scale_1=config.scale_1,
+        scale_2=config.scale_2,
+        transform= transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), ToTensor()]),
+        train_mode=False,
+        scene_list=test_scene_list,
+        train_size=config.train_size
+    )
+    train_loader = DataLoader(dataset=train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, drop_last=True, shuffle=True)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=config.batch_size, num_workers=config.num_workers, drop_last=True, shuffle=True)
+
+
+    # create model
+    model_backbone = resnet50_backbone().to(config.device)
+    model_transformer = IQARegression(config).to(config.device)
+
+
+    # loss function & optimization
+    criterion = torch.nn.L1Loss()
+    params = list(model_backbone.parameters()) + list(model_transformer.parameters())
+    optimizer = torch.optim.SGD(params, lr=config.learning_rate, weight_decay=config.weight_decay, momentum=config.momentum)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.T_max, eta_min=config.eta_min)
+
+
+    # load weights & optimizer
+    if config.checkpoint is not None:
+        checkpoint = torch.load(config.checkpoint)
+        model_backbone.load_state_dict(checkpoint['model_backbone_state_dict'])
+        model_transformer.load_state_dict(checkpoint['model_transformer_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        start_epoch = checkpoint['epoch']
+        loss = checkpoint['loss']
+    else:
+        start_epoch = 0
+
+    # make directory for saving weights
+    if not os.path.exists(config.snap_path):
+        os.mkdir(config.snap_path)
+
+
+    # train & validation
+    for epoch in range(start_epoch, config.n_epoch):
+        loss, rho_s, rho_p = train_epoch(config, epoch, model_transformer, model_backbone, criterion, optimizer, scheduler, train_loader)
+
+        if (epoch+1) % config.val_freq == 0:
+            loss, rho_s, rho_p = eval_epoch(config, epoch, model_transformer, model_backbone, criterion, test_loader)
+
+
+if __name__ == '__main__':
+    main()

@@ -4,12 +4,12 @@ import numpy as np
 import cv2
 
 class IQADataset(torch.utils.data.Dataset):
-    def __init__(self, db_path, txt_file_name, scale_1, transform, train_mode, scene_list, train_size=0.8):
+    def __init__(self, db_path, txt_file_name, transform, train_mode, scene_list, train_size=0.8):
         super(IQADataset, self).__init__()
 
         self.db_path = db_path
         self.txt_file_name = txt_file_name
-        self.scale_1 = scale_1
+        # self.scale_1 = scale_1
         # self.scale_2 = scale_2
         self.transform = transform
         self.train_mode = train_mode
@@ -32,7 +32,7 @@ class IQADataset(torch.utils.data.Dataset):
         # d_img_org: H x W x C
         d_img_name = self.data_dict['d_img_list'][idx]
     #    print(d_img_name)
-        d_img_org = cv2.imread(os.path.join((self.db_path + '/SAIs'), d_img_name), cv2.IMREAD_COLOR)
+        d_img_org = cv2.imread(os.path.join((self.db_path + '/EPIs'), d_img_name), cv2.IMREAD_COLOR)
         # print(d_img_org.shape)
         # print(os.path.join((self.db_path + '/1024x768'),('1024x768\\'+ d_img_name))
         d_img_org = cv2.cvtColor(d_img_org, cv2.COLOR_BGR2RGB)
@@ -41,13 +41,13 @@ class IQADataset(torch.utils.data.Dataset):
         # print(d_img_org.shape)
 
         h, w, c = d_img_org.shape
-        d_img_scale_1 = cv2.resize(d_img_org, dsize=(self.scale_1, int(h*(self.scale_1/w))), interpolation=cv2.INTER_CUBIC)
+        # d_img_scale_1 = cv2.resize(d_img_org, dsize=(self.scale_1, int(h*(self.scale_1/w))), interpolation=cv2.INTER_CUBIC)
         # d_img_scale_2 = cv2.resize(d_img_org, dsize=(self.scale_2, int(h*(self.scale_2/w))), interpolation=cv2.INTER_CUBIC)
         # d_img_scale_2 = d_img_scale_2[:160, :, :]
 
         score = self.data_dict['score_list'][idx]
 
-        sample = {'d_img_org': d_img_org, 'd_img_scale_1': d_img_scale_1, 'score': score}
+        sample = {'d_img_org': d_img_org, 'score': score}
 
         if self.transform:
             sample = self.transform(sample)

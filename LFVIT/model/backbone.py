@@ -77,12 +77,18 @@ class Bottleneck(nn.Module):
         out = self.bn1(out)
         out = self.relu(out)
 
+        # print("conv1=>bn1=>relu=>", out.size())
+
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
 
+        # print("conv2=>bn2=>relu=>", out.size())
+
         out = self.conv3(out)
         out = self.bn3(out)
+
+        # print("conv3=>bn3=>", out.size())
 
         if self.downsample is not None:
             residual = self.downsample(x)
@@ -158,6 +164,9 @@ def resnet50_backbone(**kwargs):
     save_model = torch.load('/Users/mianmaokuchuanma/database/model/resnet50.pth')
     model_dict = model.state_dict()
     state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
+    # for k, v in save_model.items():
+    #     if k in model_dict.keys():
+    #         print(k, v.size())
     model_dict.update(state_dict)
     model.load_state_dict(model_dict)
     

@@ -5,10 +5,10 @@ from torch.utils.data import DataLoader
 
 
 from option.config import Config
-from model.model_main import IQARegression
+from model.model_main_2 import IQARegression
 from model.backbone import resnet50_backbone
-from trainer import train_epoch, eval_epoch
-from utils.util import RandHorizontalFlip, Normalize, ToTensor, RandShuffle
+from trainer_2 import train_epoch, eval_epoch
+from utils.util_2 import RandHorizontalFlip, Normalize, ToTensor, RandShuffle
 
 
 def main():
@@ -19,18 +19,18 @@ def main():
         'num_workers': 8,
 
         # data
-        'db_name': 'WIN5-LID',                                     # database type
+        'db_name': 'WIN5-EPI',                                     # database type
         'db_path': '/Users/mianmaokuchuanma/database/win5-lid/win5-lid',      # root path of database
-        'txt_file_name': './IQA_list/WIN5-LID-real.txt',                # list of images in the database
+        'txt_file_name': './IQA_list/WIN5-EPI.txt',                # list of images in the database
         'train_size': 0.8,                                          # train/vaildation separation ratio
         'scenes': 'all',                                            # using all scenes
-        'scale_1': 384,
+        # 'scale_1': 384,
         # 'scale_2': 224,
-        'batch_size': 2,
-        'patch_size': 32,
+        'batch_size': 4,
+        'patch_size': 9,
 
         # ViT structure
-        'n_enc_seq': 20*14 + 12*9,              # input feature map dimension (N = H*W) from backbone
+        'n_enc_seq': 20*1,              # input feature map dimension (N = H*W) from backbone
         'n_layer': 14,                          # number of encoder layers
         'd_hidn': 384,                          # input channel of encoder (input: C x N)
         'i_pad': 0,
@@ -74,6 +74,8 @@ def main():
         from data.koniq import IQADataset
     elif config.db_name == 'WIN5-LID':
         from data.win5lid import IQADataset
+    elif config.db_name == 'WIN5-EPI':
+        from data.win5_epi import IQADataset
 
 
     # dataset separation (8:2)
@@ -85,7 +87,7 @@ def main():
     train_dataset = IQADataset(
         db_path=config.db_path,
         txt_file_name=config.txt_file_name,
-        scale_1=config.scale_1,
+        # scale_1=config.scale_1,
         # scale_2=config.scale_2,
         transform=transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), RandHorizontalFlip(), ToTensor()]),
         train_mode=True,
@@ -95,7 +97,7 @@ def main():
     test_dataset = IQADataset(
         db_path=config.db_path,
         txt_file_name=config.txt_file_name,
-        scale_1=config.scale_1,
+        # scale_1=config.scale_1,
         # scale_2=config.scale_2,
         transform= transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), ToTensor()]),
         train_mode=False,
@@ -148,18 +150,18 @@ def main():
         'num_workers': 8,
 
         # data
-        'db_name': 'WIN5-LID',                                     # database type
+        'db_name': 'WIN5-EPI',                                     # database type
         'db_path': '/Users/mianmaokuchuanma/database/win5-lid/win5-lid',      # root path of database
-        'txt_file_name': './IQA_list/WIN5-LID-real.txt',                # list of images in the database
+        'txt_file_name': './IQA_list/WIN5-EPI.txt',                # list of images in the database
         'train_size': 0.8,                                          # train/vaildation separation ratio
         'scenes': 'all',                                            # using all scenes
-        'scale_1': 384,
+        # 'scale_1': 384,
         # 'scale_2': 224,
-        'batch_size': 2,
-        'patch_size': 32,
+        'batch_size': 4,
+        'patch_size': 9,
 
         # ViT structure
-        'n_enc_seq': 20*14 + 12*9,        # input feature map dimension (N = H*W) from backbone
+        'n_enc_seq': 71*1,        # input feature map dimension (N = H*W) from backbone
         'n_layer': 14,                          # number of encoder layers
         'd_hidn': 384,                          # input channel of encoder (input: C x N)
         'i_pad': 0,
@@ -203,6 +205,8 @@ def main():
         from data.koniq import IQADataset
     elif config.db_name == 'WIN5-LID':
         from data.win5lid import IQADataset
+    elif config.db_name == 'WIN5-EPI':
+        from data.win5_epi import IQADataset
 
     # dataset separation (8:2)
     train_scene_list, test_scene_list = RandShuffle(config)
@@ -213,7 +217,7 @@ def main():
     train_dataset = IQADataset(
         db_path=config.db_path,
         txt_file_name=config.txt_file_name,
-        scale_1=config.scale_1,
+        # scale_1=config.scale_1,
         # scale_2=config.scale_2,
         transform=transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), RandHorizontalFlip(), ToTensor()]),
         train_mode=True,
@@ -223,7 +227,7 @@ def main():
     test_dataset = IQADataset(
         db_path=config.db_path,
         txt_file_name=config.txt_file_name,
-        scale_1=config.scale_1,
+        # scale_1=config.scale_1,
         # scale_2=config.scale_2,
         transform= transforms.Compose([Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), ToTensor()]),
         train_mode=False,

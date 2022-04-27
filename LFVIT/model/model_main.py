@@ -29,7 +29,9 @@ class IQARegression(nn.Module):
     def forward(self, mask_inputs, feat_dis_org, feat_dis_scale_1):
         # batch x (C=2048) x H x W -> batch x (C=384) x H x W
         feat_dis_org_embed = self.conv_enc(feat_dis_org)
+        # print("feat_dis_org_embed", feat_dis_org_embed.size())
         feat_dis_scale_1_embed = self.conv_enc(feat_dis_scale_1)
+        # print("feat_dis_scale_1_embed", feat_dis_scale_1_embed.size())
         # feat_dis_scale_2_embed = self.conv_enc(feat_dis_scale_2)
         
         # batch x (C=384) x H x W -> batch x (H*W) x (C=384)
@@ -92,10 +94,12 @@ class Encoder(nn.Module):
         # feat_dis_scale_2_embed: batch x (C=384) x (H=5) x (W=7)
           
         # learnable scale embedding
-        scale_org_embed = repeat(self.scale_org_embedding, '() c () () -> b c h w', b=self.config.batch_size, h=24, w=32)
+        scale_org_embed = repeat(self.scale_org_embedding, '() c () () -> b c h w', b=self.config.batch_size, h=14, w=20)
         scale_1_embed = repeat(self.scale_1_embedding, '() c () () -> b c h w', b=self.config.batch_size, h=9, w=12)
         # scale_2_embed = repeat(self.scale_1_embedding, '() c () () -> b c h w', b=self.config.batch_size, h=5, w=7)
 
+        print(feat_dis_org_embed.size())
+        print(scale_org_embed.size())
         feat_dis_org_embed += scale_org_embed
         feat_dis_scale_1_embed += scale_1_embed
         # feat_dis_scale_2_embed += scale_2_embed

@@ -57,12 +57,12 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
-                               padding=dilation, dilation=dilation, bias=False)
+                               padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
@@ -101,24 +101,18 @@ class Bottleneck(nn.Module):
 
 class ResNetBackbone(nn.Module):
 
-    def __init__(self, block, layers, replace_stride_with_dilation=None):
+    def __init__(self, block, layers):
         super(ResNetBackbone, self).__init__()
         self.inplanes = 64
-        self.dilation = 1
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
 
-        if replace_stride_with_dilation is None:
-            replace_stride_with_dilation = [False, False, False]
-
-        if len(replace_stride_with_dilation) != 3:
-            raise ValueError("replace_stride_with_dilation should be None or a 3 element tuple, got {}".format(replace_stride_with_dilation))
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -129,12 +123,8 @@ class ResNetBackbone(nn.Module):
                 m.bias.data.zero_()
         
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilate=False):
+    def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
-        previous_dilation = self.dilation
-        if dilate:
-            self.dilation *= stride
-            stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 nn.Conv2d(self.inplanes, planes * block.expansion,
@@ -143,10 +133,10 @@ class ResNetBackbone(nn.Module):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, dilation=previous_dilation))
+        layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=self.dilation))
+            layers.append(block(self.inplanes, planes))
 
         return nn.Sequential(*layers)
 
@@ -174,9 +164,20 @@ def resnet50_backbone(**kwargs):
     save_model = torch.load('/Users/mianmaokuchuanma/database/model/resnet50.pth')
     model_dict = model.state_dict()
     state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
-    # for k, v in save_model.items():
-    #     if k in model_dict.keys():
-    #         print(k, v.size())
+    j, k = 0, 0
+    model_list1 = list(model_dict.keys())
+    model_list2 = list(state_dict.keys())
+    while 1:
+        if j >= len(model_list1) or k >= len(model_list2):
+            break
+        layer1, layer2 = model_list1[j], model_list2[k]
+        if "num_batches_tracked" in layer1:
+            j += 1
+            layer1 = model_list1[j]
+        print(layer1, model_dict[layer1].shape, end=' ')
+        print(layer2, state_dict[layer2].shape)
+        j += 1
+        k += 1
     model_dict.update(state_dict)
     model.load_state_dict(model_dict)
     
@@ -189,16 +190,26 @@ def resnet34_backbone(**kwargs):
 
     # load pre-trained weights
     # save_model = model_zoo.load_url(model_urls['resnet50'])
-    save_model = torch.load('./model/resnet34.pth')
+    save_model = torch.load('/Users/mianmaokuchuanma/database/model/resnet34.pth')
     model_dict = model.state_dict()
-    state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
-    model_dict.update(state_dict)
+    state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys() and "num_batches_tracked" not in k}
     model_list1 = list(model_dict.keys())
     model_list2 = list(state_dict.keys())
-    minlen = min(len(model_list1), len(model_list2))
-    for i in range(minlen):
-        print(model_list1[i], end=' ')
-        print(model_list2[i])
+
+    j, k = 0, 0
+    while 1:
+        if j >= len(model_list1) or k >= len(model_list2):
+            break
+        layer1, layer2 = model_list1[j], model_list2[k]
+        if "num_batches_tracked" in layer1:
+            j += 1
+            layer1 = model_list1[j]
+        print(layer1, model_dict[layer1].shape, end=' ')
+        print(layer2, state_dict[layer2].shape)
+        j += 1
+        k += 1
+
+    model_dict.update(state_dict)
     model.load_state_dict(model_dict, False)
 
     return model

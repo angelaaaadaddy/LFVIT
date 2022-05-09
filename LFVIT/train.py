@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from option.config import Config
 from model.model_main import IQARegression
 from model.backbone import resnet50_backbone
+from model.backbone import resnet34_backbone
 from trainer import train_epoch, eval_epoch
 from utils.util import RandHorizontalFlip, Normalize, ToTensor, RandShuffle
 
@@ -107,7 +108,7 @@ def main():
 
 
     # create model
-    model_backbone = resnet50_backbone().to(config.device)
+    model_backbone = resnet34_backbone().to(config.device)
     model_transformer = IQARegression(config).to(config.device)
 
 

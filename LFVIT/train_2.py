@@ -109,7 +109,7 @@ def main():
 
 
     # create model
-    model_backbone = resnet50_backbone().to(config.device)
+    model_backbone = resnet50_backbone(replace_stride_with_dilation=[False, True, True]).to(config.device)
     model_transformer = IQARegression(config).to(config.device)
 
 
@@ -239,7 +239,7 @@ def main():
 
 
     # create model
-    model_backbone = resnet50_backbone().to(config.device)
+    model_backbone = resnet50_backbone(replace_stride_with_dilation=[False, True, True]).to(config.device)
     model_transformer = IQARegression(config).to(config.device)
 
 

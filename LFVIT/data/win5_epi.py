@@ -17,10 +17,10 @@ class IQADataset(torch.utils.data.Dataset):
         self.train_size = train_size
 
         self.data_dict = IQADatalist(
-            txt_file_name = self.txt_file_name,
-            train_mode = self.train_mode,
-            scene_list = self.scene_list,
-            train_size = self.train_size
+            txt_file_name=self.txt_file_name,
+            train_mode=self.train_mode,
+            scene_list=self.scene_list,
+            train_size=self.train_size
         ).load_data_dict()
 
         self.n_images = len(self.data_dict['d_img_list'])
@@ -66,6 +66,7 @@ class IQADatalist():
             scn_idx_list, d_img_list, score_list = [], [], []
 
             # list append
+
             with open(self.txt_file_name, 'r') as listFile:
                 for line in listFile:
                     scn_idx, dis, score = line.split()

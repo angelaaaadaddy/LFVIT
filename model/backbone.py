@@ -129,6 +129,7 @@ class ResNetBackbone(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        # print('x', x.dtype)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

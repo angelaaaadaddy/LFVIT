@@ -43,11 +43,10 @@ class LSA(nn.Module):
         return self.to_out(out)
 
 
-
 class SPT(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.patch_dim = config.patch_size * config.patch_size * config.channels
+        self.patch_dim = config.patch_size * config.patch_size * 15
 
         self.to_patch_tokens = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=config.patch_size, p2=config.patch_size),
@@ -58,21 +57,23 @@ class SPT(nn.Module):
     def forward(self, x):
         shifts = ((1, -1, 0, 0), (-1, 1, 0, 0), (0, 0, 1, -1), (0, 0, -1, 1))
         shifted_x = list(map(lambda shift: F.pad(x, shift), shifts))
+        # print("shifted_x", shifted_x)
         x_with_shifts = torch.cat((x, *shifted_x), dim=1)
+        # print("x_with_shifts", x_with_shifts.size())
         return self.to_patch_tokens(x_with_shifts)
 
 class FeedForward(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.dim = config.d_hidn
-        self.d_ff = config.d_ff
+        self.dim = self.config.d_hidn
+        self.d_ff = self.config.d_ff
         self.net = nn.Sequential(
             nn.Linear(self.dim, self.d_ff),
             nn.GELU(),
-            nn.Dropout(config.dropout),
+            nn.Dropout(self.config.dropout),
             nn.Linear(self.d_ff, self.dim),
-            nn.Dropout(config.dropout)
+            nn.Dropout(self.config.dropout)
         )
 
     def forward(self, x):
@@ -107,14 +108,14 @@ class Encoder(nn.Module):
 
         self.layers = nn.ModuleList([EncoderLayer(self.config) for _ in range(config.n_layer)])
 
-    def forward(self, feat_dis_org_embed):
+    def forward(self, embed):
 
-        b, c, h, w = feat_dis_org_embed.size()
-        feat_dis_org_embed = torch.reshape(feat_dis_org_embed, (b, c, h * w))
-        feat_dis_org_embed = feat_dis_org_embed.permute((0, 2, 1))
-
+        # b, c, h, w = embed.size()
+        # embed = torch.reshape(embed, (b, c, h * w))
+        # embed = embed.permute((0, 2, 1))
+        # print("embed", embed.size())
         cls_tokens = repeat(self.cls_token, '() n d -> b n d', b=self.config.batch_size)
-        x = torch.cat((cls_tokens, feat_dis_org_embed), dim=1)
+        x = torch.cat((cls_tokens, embed), dim=1)
         x += self.pos_embedding
         out = self.dropout(x)
 
@@ -129,7 +130,7 @@ class VisionTransformer(nn.Module):
         self.config = config
         self.encoder = Encoder(self.config)
 
-        self.convenc = nn.Conv2d(2048, self.config.d_hidn, kernel_size=1)
+        self.to_patch_embedding = SPT(self.config)
 
         # MLP head
         self.projection = nn.Sequential(
@@ -138,10 +139,11 @@ class VisionTransformer(nn.Module):
             nn.Linear(self.config.d_MLP_head, self.config.n_output, bias=False)
         )
 
-    def forward(self, feat_dis_org):
-        feat_dis_org = self.convenc(feat_dis_org)
+    def forward(self, img):
+        # print("img", img.size())
+        x = self.to_patch_embedding(img)
 
-        enc_out = self.encoder(feat_dis_org)
+        enc_out = self.encoder(x)
         enc_out = enc_out[:, 0, :]
 
         pred = self.projection(enc_out)

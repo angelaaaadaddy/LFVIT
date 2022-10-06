@@ -1,25 +1,25 @@
 import os
 import torch
-from model.backbone import resnet50_backbone
+from model.resnet50 import resnet50_backbone
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from utils.util import RandShuffle, NM_Normalize, NM_RandHorizontalFlip, NM_ToTensor
-from trainer import smViT_train_epoch, smViT_val_epoch
+from utils.util import RandShuffle, split_Normalize, split_ToTensor
+from split_trainer import smViT_train_epoch, smViT_val_epoch
 from option.config import Config
 from model.simple_vit import VisionTransformer
 
 def NEW_SAI():
     config = Config({
         # device
-        'gpu_id': "2",
+        'gpu_id': "1",
         'num_workers': 8,
 
         # dataset
-        'db_name': 'WIN5-SAI-MI-49',
-        'train_txt_filename': './IQA_list2/WIN5-SAI-49-train-2.txt',
-        'test_txt_filename': './IQA_list2/WIN5-SAI-49-test-2.txt',
+        'db_name': 'WIN5-SAI-MI-split-49',
+        'train_txt_filename': './IQA_list2/WIN5-SAI-49-train-1.txt',
+        'test_txt_filename': './IQA_list2/WIN5-SAI-49-test-1.txt',
         'db_path': './dataset/Win5-LID',
-        'batch_size': 8,
+        'batch_size': 2,
         'train_size': 0.8,
         'patch_size': 16,
         'scenes': 'all',
@@ -49,8 +49,8 @@ def NEW_SAI():
         'n_output': 1,
 
         # load & save checkpoint
-        'snap_path': './result2/SMVIT_SAI_MI_49_2_weights',
-        'checkpoint': './result2/SMVIT_SAI_MI_49_2_weights/epoch50.pth',
+        'snap_path': './result2/SMVIT_SAI_MI_split_49_1_weights',
+        'checkpoint': './result2/SMVIT_SAI_MI_split_49_1_weights/epoch40.pth',
     })
 
     config.device = torch.device('cuda:%s' % config.gpu_id if torch.cuda.is_available() else 'cpu')
@@ -70,6 +70,8 @@ def NEW_SAI():
         from data.WIN5_SAI_MI_49 import IQADataset
     elif config.db_name == 'WIN5-SAI-MI-25':
         from data.WIN5_SAI_MI_25 import IQADataset
+    elif config.db_name == 'WIN5-SAI-MI-split-49':
+        from data.WIN5_SAI_MI_split_49 import IQADataset
 
     # dataset separation(8:2)
     train_scene_list, test_scene_list = RandShuffle(config)
@@ -80,7 +82,7 @@ def NEW_SAI():
     train_dataset = IQADataset(
         db_path=config.db_path,
         txt_filename=config.train_txt_filename,
-        transform=transforms.Compose([NM_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), NM_ToTensor()]),
+        transform=transforms.Compose([split_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), split_ToTensor()]),
         train_mode=True,
         scene_list=train_scene_list,
         # train_size=config.train_size
@@ -89,7 +91,7 @@ def NEW_SAI():
     test_dataset = IQADataset(
         db_path=config.db_path,
         txt_filename=config.test_txt_filename,
-        transform=transforms.Compose([NM_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), NM_ToTensor()]),
+        transform=transforms.Compose([split_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), split_ToTensor()]),
         train_mode=False,
         scene_list=test_scene_list,
         # train_size=config.train_size

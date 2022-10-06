@@ -3,10 +3,11 @@ import torch
 from model.backbone import resnet50_backbone
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from utils.util import RandShuffle,  NM_Normalize,  NM_ToTensor
+from utils.util import RandShuffle, MIX_Normalize, MIX_ToTensor
 from mix_trainer import nm_train_epoch, nm_val_epoch, smViT_train_epoch, smViT_val_epoch
 from option.config import Config
 from model.simple_vit import VisionTransformer
+from model.get_epi_feature import EPI_special
 
 def smViT_mix():
     config = Config({
@@ -17,9 +18,10 @@ def smViT_mix():
 
         # dataset
         'db_name': 'WIN5-MIX-49',
-        'txt_filename': './IQA_list/WIN5-SAI-49.txt',
+        'train_txt_filename': './IQA_list/WIN5-SAI-49-train-2.txt',
+        'test_txt_filename': './IQA_list/WIN5-SAI-49-test-2.txt',
         'db_path': './dataset/Win5-LID',
-        'batch_size': 2,
+        'batch_size': 4,
         'train_size': 0.8,
         'patch_size': 16,
         'scenes': 'all',
@@ -34,6 +36,7 @@ def smViT_mix():
         'T_max': 3e4,
         'eta_min': 0,
         'n_epoch': 100,
+        'cal_srocc_epoch': 5,
 
         # ViT structure
         'n_enc_seq': 20*15,
@@ -48,10 +51,12 @@ def smViT_mix():
         'emb_dropout': 0.1,
         'ln_eps': 1e-12,
         'n_output': 1,
+        'epi_h': 625,
+        'epi_w': 9,
 
         # load & save checkpoint
-        'snap_path': './SMVIT_MIX_49_weights',
-        'checkpoint': None,
+        'snap_path': './result/SMVIT_MIX_49_2_weights',
+        'checkpoint': './result/SMVIT_MIX_49_2_weights/epoch90.pth',
 
     })
 
@@ -78,8 +83,8 @@ def smViT_mix():
     # data load
     train_dataset = IQADataset(
         db_path=config.db_path,
-        txt_filename=config.txt_filename,
-        transform=transforms.Compose([NM_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), NM_ToTensor()]),
+        txt_filename=config.train_txt_filename,
+        transform=transforms.Compose([MIX_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), MIX_ToTensor()]),
         train_mode=True,
         scene_list=train_scene_list
         # train_size=config.train_size
@@ -87,8 +92,8 @@ def smViT_mix():
 
     test_dataset = IQADataset(
         db_path=config.db_path,
-        txt_filename=config.txt_filename,
-        transform=transforms.Compose([NM_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), NM_ToTensor()]),
+        txt_filename=config.test_txt_filename,
+        transform=transforms.Compose([MIX_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), MIX_ToTensor()]),
         train_mode=False,
         scene_list=test_scene_list
         # train_size=config.train_size
@@ -98,11 +103,13 @@ def smViT_mix():
     test_loader = DataLoader(dataset=test_dataset, batch_size=config.batch_size, num_workers=config.num_workers, drop_last=True, shuffle=True)
 
     # create model
+    model_epi = EPI_special(config).to(config.device)
     model_backbone = resnet50_backbone().to(config.device)
     model_transformer = VisionTransformer(config).to(config.device)
 
     # loss function & optimization
     criterion = torch.nn.L1Loss()
+    loss2 = torch.nn.MSELoss()
     params = list(model_transformer.parameters()) + list(model_backbone.parameters())
     optimizer = torch.optim.SGD(params, lr=config.lr_rate, weight_decay=config.weight_decay, momentum=config.momentum)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.T_max, eta_min=config.eta_min)
@@ -126,10 +133,10 @@ def smViT_mix():
 
     # train & validation
     for epoch in range(start_epoch, config.n_epoch):
-        loss, rho_s, rho_p = smViT_train_epoch(config, epoch, model_transformer, model_backbone, train_loader, optimizer, criterion, scheduler)
+        loss, rho_s, rho_p = smViT_train_epoch(config, epoch, model_transformer, model_backbone, model_epi, train_loader, optimizer, criterion, loss2, scheduler)
 
         if (epoch + 1) % config.val_freq == 0:
-            loss, rho_s, rho_p = smViT_val_epoch(config, epoch, model_transformer, model_backbone, criterion, test_loader)
+            loss, rho_s, rho_p = smViT_val_epoch(config, epoch, model_transformer, model_backbone, model_epi, criterion, loss2, test_loader)
 
 
 

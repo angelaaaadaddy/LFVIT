@@ -42,13 +42,13 @@ class DistillWrapper(nn.Module):
         if not self.hard:
             distill_loss = F.kl_div(
                 F.log_softmax(distill_logits / T, dim=-1),
-                F.softmax(teacher_logits / T, dim=-1).detach(),
+                F.softmax(self.teacher_logits / T, dim=-1).detach(),
             reduction='batchmean'
             )
             distill_loss *= T ** 2
 
         else:
-            teacher_labels = teacher_logits.argmax(dim=-1)
+            teacher_labels = self.teacher_logits.argmax(dim=-1)
             distill_loss = F.cross_entropy(distill_logits, teacher_labels)
 
         return loss * (1 - alpha) + distill_loss * alpha
@@ -90,4 +90,10 @@ class DistillableViT(DistillMixin, ViT2):
         
     def to_vit(self):
         v = ViT2(self.config)
-        v.load_state_dict(self.)
+        v.load_state_dict(self.state_dict())
+        return v
+
+    def _attend(self, x):
+        x = self.dropout(x)
+        x = self.transformer(x)
+        return x

@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import math
 
 class MS_RandHorizontalFlip(object):
     def __call__(self, sample):
@@ -31,11 +32,9 @@ class NM_RandHorizontalFlip(object):
         if prob_lr > 0.5:
             d_img_org = np.fliplr(d_img_org).copy()
 
-
         sample = {'d_img_org': d_img_org, 'score': score}
 
         return sample
-
 
 
 class MS_Normalize(object):
@@ -130,43 +129,152 @@ class NM_ToTensor(object):
 
         return sample
 
+class MIX_Normalize(object):
+    def __init__(self, mean, var):
+        self.mean = mean
+        self.var = var
 
+    def __call__(self, sample):
+        SAI = sample['SAI']
+        EPI = sample['EPI']
 
+        score = sample['score']
+
+        SAI[:, :, 0] = (SAI[:, :, 0] - self.mean[0]) / self.var[0]
+        SAI[:, :, 1] = (SAI[:, :, 1] - self.mean[1]) / self.var[1]
+        SAI[:, :, 2] = (SAI[:, :, 2] - self.mean[2]) / self.var[2]
+
+        EPI[:, :, 0] = (EPI[:, :, 0] - self.mean[0]) / self.var[0]
+        EPI[:, :, 1] = (EPI[:, :, 1] - self.mean[1]) / self.var[1]
+        EPI[:, :, 2] = (EPI[:, :, 2] - self.mean[2]) / self.var[2]
+
+        sample = {'SAI': SAI, 'EPI': EPI, 'score': score}
+
+        return sample
+
+class MIX_ToTensor(object):
+    def __call__(self, sample):
+        SAI = sample['SAI']
+        EPI = sample['EPI']
+
+        score = sample['score']
+
+        SAI = np.transpose(SAI, (2, 0, 1))
+        SAI = torch.from_numpy(SAI)
+
+        EPI = np.transpose(EPI, (2, 0, 1))
+        EPI = torch.from_numpy(EPI)
+
+        score = torch.from_numpy(score)
+
+        sample = {'SAI': SAI, 'EPI': EPI, 'score': score}
+
+        return sample
+
+class split_RandHorizontalFlip(object):
+    def __call__(self, sample):
+        d_img_org = sample['d_img_org']
+        score = sample['score']
+
+        prob_lr = np.random.random()
+
+        if prob_lr > 0.5:
+            d_img_org = np.fliplr(d_img_org).copy()
+
+        sample = {'d_img_org': d_img_org, 'score': score}
+
+        return sample
+
+class split_Normalize(object):
+    def __init__(self, mean, var):
+        self.mean = mean
+        self.var = var
+
+    def __call__(self, sample):
+        vertical = sample['vertical']
+        horizontal = sample['horizontal']
+        left = sample['left']
+        right = sample['right']
+
+        score = sample['score']
+
+        vertical[:, :, 0] = (vertical[:, :, 0] - self.mean[0]) / self.var[0]
+        vertical[:, :, 1] = (vertical[:, :, 1] - self.mean[1]) / self.var[1]
+        vertical[:, :, 2] = (vertical[:, :, 2] - self.mean[2]) / self.var[2]
+
+        horizontal[:, :, 0] = (horizontal[:, :, 0] - self.mean[0]) / self.var[0]
+        horizontal[:, :, 1] = (horizontal[:, :, 1] - self.mean[1]) / self.var[1]
+        horizontal[:, :, 2] = (horizontal[:, :, 2] - self.mean[2]) / self.var[2]
+
+        left[:, :, 0] = (left[:, :, 0] - self.mean[0]) / self.var[0]
+        left[:, :, 1] = (left[:, :, 1] - self.mean[1]) / self.var[1]
+        left[:, :, 2] = (left[:, :, 2] - self.mean[2]) / self.var[2]
+
+        right[:, :, 0] = (right[:, :, 0] - self.mean[0]) / self.var[0]
+        right[:, :, 1] = (right[:, :, 1] - self.mean[1]) / self.var[1]
+        right[:, :, 2] = (right[:, :, 2] - self.mean[2]) / self.var[2]
+
+        sample = {'vertical': vertical, 'horizontal': horizontal, 'left': left, 'right':right, 'score': score}
+
+        return sample
+
+class split_ToTensor(object):
+    def __call__(self, sample):
+        vertical = sample['vertical']
+        horizontal = sample['horizontal']
+        left = sample['left']
+        right = sample['right']
+
+        score = sample['score']
+
+        vertical = np.transpose(vertical, (2, 0, 1))
+        vertical = torch.from_numpy(vertical)
+
+        horizontal = np.transpose(horizontal, (2, 0, 1))
+        horizontal = torch.from_numpy(horizontal)
+
+        left = np.transpose(left, (2, 0, 1))
+        left = torch.from_numpy(left)
+
+        right = np.transpose(right, (2, 0, 1))
+        right = torch.from_numpy(right)
+
+        score = torch.from_numpy(score)
+
+        sample = {'vertical': vertical, 'horizontal': horizontal, 'left': left, 'right':right, 'score': score}
+
+        return sample
 
 def RandShuffle(config):
-    train_size = config.train_size
+    # train_size = config.train_size
 
     if config.scenes == 'all':
         if config.db_name == 'WIN5-LID':
             scenes = list(range(10692))
         elif config.db_name == 'WIN5-EPI':
-            scenes = list(range(1188))
+            scenes = list(range(88))
         elif config.db_name == 'WIN5-LFI':
             scenes = list(range(132 * 54))
-        elif config.db_name == 'WIN5-SAI-49':
-            scenes = list(range(6468))
-        elif config.db_name == 'WIN5-SAI-25':
-            scenes = list(range(3300))
-        elif config.db_name == 'WIN5-SAI-ALL-49':
-            scenes = list(range(220 * 49))
+        elif config.db_name == 'WIN5-SAI-49' or config.db_name == 'WIN5-MIX-49' \
+                or config.db_name == 'WIN5-SAI-MI-49' or config.db_name == 'WIN5-SAI-MI-split-49':
+            train_scenes = list(range(math.floor(132 * 49 * 0.8) + 1))
+            test_scenes = list(range(math.floor(132 * 49 * 0.2)))
+        elif config.db_name == 'WIN5-SAI-25' or config.db_name == 'WIN5-SAI-MI-25':
+            train_scenes = list(range(math.floor(132 * 25 * 0.8) + 1))
+            test_scenes = list(range(math.floor(132 * 25 * 0.2)))
     else:
         scenes = config.scenes
 
-    n_scenes = len(scenes)
-    n_train_scenes = int(np.floor(n_scenes * train_size))
+    # train_n_scenes = len(train_scenes)
+    # test_n_scenes = len(test_scenes)
+    # n_train_scenes = int(np.floor(n_scenes * train_size))
 
     seed = np.random.random()
     random_seed = int(seed * 10)
     np.random.seed(random_seed)
-    np.random.shuffle(scenes)
-    train_scene_list = scenes[:n_train_scenes]
-    test_scene_list = scenes[n_train_scenes:]
+    np.random.shuffle(train_scenes)
+    np.random.shuffle(test_scenes)
+    train_scene_list = train_scenes
+    test_scene_list = test_scenes
 
     return train_scene_list, test_scene_list
-
-def clean_nan(matrix):
-    for i in range(len(matrix)):
-        if matrix[i] is np.nan:
-            matrix[i] = 0
-
-    return matrix

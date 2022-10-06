@@ -1,6 +1,7 @@
 import torch.nn.functional as F
 import torch
 from model.distill_vit import DistillWrapper, DistillableViT
+from tqdm import tqdm
 
 def distill_train_epoch(config, epoch, model_teacher, model_student, train_loader, optimizer, criterion, scheduler):
     losses = []

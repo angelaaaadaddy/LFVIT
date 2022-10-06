@@ -151,7 +151,7 @@ def resnet50_backbone(**kwargs):
     model = ResNetBackbone(Bottleneck, [3, 4, 6, 3], **kwargs)
 
     # load pre-trained weights
-    save_model = torch.load('./dataset/model/resnet50.pth')
+    save_model = torch.load('/Users/mianmaokuchuanma/dataset/model/resnet50.pth')
     model_dict = model.state_dict()
     state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
 

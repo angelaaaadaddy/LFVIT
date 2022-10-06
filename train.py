@@ -1,7 +1,7 @@
 import os
 import torch
 from model.backbone import resnet50_backbone
-from model.resnet50 import resnet50_backbone2
+# from model.resnet50 import resnet50_backbone2
 from model.multiscale_vit import MS_IQAregression
 from model.vit import ViT
 from torch.utils.data import DataLoader
@@ -14,14 +14,13 @@ from model.simple_vit import VisionTransformer
 def SAI():
     config = Config({
         # device
-        'gpu_id': "2",
+        'gpu_id': "1",
         'num_workers': 8,
-        'train_name': 'SAI-vit',
 
         # dataset
         'db_name': 'WIN5-LID',
         'txt_filename': './IQA_list/WIN5-LID-real.txt',
-        'db_path': '/Users/mianmaokuchuanma/DATABASE/Win5-LID/Win5-LID',
+        'db_path': './dataset/Win5-LID',
         'scale1': 384,
         'scale2': 224,
         'batch_size': 2,
@@ -58,6 +57,7 @@ def SAI():
         # load & save checkpoint
         'snap_path': './sai_weights',
         'checkpoint': None,
+
     })
 
     # device config
@@ -138,14 +138,13 @@ def SAI():
 def EPI():
     config = Config({
         # device
-        "train_name": "vertical_EPI_vit",
-        'gpu_id': "1",
+        'gpu_id': "0",
         'num_workers': 8,
 
         # dataset
         'db_name': 'WIN5-EPI',
         'txt_filename': './IQA_list/WIN5-EPI.txt',
-        'db_path': './dataset/Win5-LID',
+        'db_path': '/Users/mianmaokuchuanma/dataset/Win5-LID/Win5-LID',
         'batch_size': 2,
         'train_size': 0.8,
         'patch_size': 32,
@@ -225,7 +224,7 @@ def EPI():
 
     # create model
     model_backbone = resnet50_backbone().to(config.device)
-    model_transformer = ViT(config).to(config.device)
+    model_transformer = NM_IQAregression(config).to(config.device)
 
     # loss function & optimization
     criterion = torch.nn.L1Loss()
@@ -259,16 +258,15 @@ def EPI():
 def smViT_SAI():
     config = Config({
         # device
-        'gpu_id': "3",
+        'gpu_id': "1",
         'num_workers': 8,
-        'train_name': 'WIN5-SAI-ALL-49',
+        'train_name':'WIN5-SAI-49',
 
         # dataset
-        'db_name': 'WIN5-SAI-ALL-49',
-        'txt_filename': './IQA_list/WIN5-SAI-ALL-49.txt',
+        'db_name': 'WIN5-SAI-49',
+        'train_txt_filename': './IQA_list/WIN5-SAI-49-train-1.txt',
+        'test_txt_filename': './IQA_list/WIN5-SAI-49-test-1.txt',
         'db_path': './dataset/Win5-LID',
-        'ph': 14,
-        'pw': 20,
         'batch_size': 2,
         'train_size': 0.8,
         'patch_size': 32,
@@ -300,7 +298,7 @@ def smViT_SAI():
         'n_output': 1,
 
         # load & save checkpoint
-        'snap_path': './SMVIT_SAI_ALL_49_weights',
+        'snap_path': './result/SMVIT_SAI_49_split_1_weights',
         'checkpoint': None,
 
     })
@@ -313,9 +311,9 @@ def smViT_SAI():
         print("Using CPU")
 
     # data selection
-    if config.db_name == 'WIN5-LID-EPI':
-        from data.win5epi import IQADataset
-    elif config.db_name == 'WIN5-SAI-ALL-49':
+    if config.db_name == 'WIN5-SAI-49':
+        from data.WIN5_SAI_1 import IQADataset
+    elif config.db_name == 'WIN5-SAI-25':
         from data.WIN5_SAI_1 import IQADataset
 
     # dataset separation(8:2)
@@ -326,20 +324,20 @@ def smViT_SAI():
     # data load
     train_dataset = IQADataset(
         db_path=config.db_path,
-        txt_filename=config.txt_filename,
+        txt_filename=config.train_txt_filename,
         transform=transforms.Compose([NM_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), NM_ToTensor()]),
         train_mode=True,
         scene_list=train_scene_list,
-        train_size=config.train_size
+        # train_size=config.train_size
     )
 
     test_dataset = IQADataset(
         db_path=config.db_path,
-        txt_filename=config.txt_filename,
+        txt_filename=config.test_txt_filename,
         transform=transforms.Compose([NM_Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), NM_ToTensor()]),
         train_mode=False,
         scene_list=test_scene_list,
-        train_size=config.train_size
+        # train_size=config.train_size
     )
 
     train_loader = DataLoader(dataset=train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, drop_last=True, shuffle=True)
@@ -351,6 +349,7 @@ def smViT_SAI():
 
     # loss function & optimization
     criterion = torch.nn.L1Loss()
+    loss2 = torch.nn.MSELoss()
     params = list(model_transformer.parameters()) + list(model_backbone.parameters())
     optimizer = torch.optim.SGD(params, lr=config.lr_rate, weight_decay=config.weight_decay, momentum=config.momentum)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.T_max, eta_min=config.eta_min)
@@ -364,7 +363,6 @@ def smViT_SAI():
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         start_epoch = checkpoint['epoch']
         loss = checkpoint['loss']
-        print("yesyes")
     else:
         start_epoch = 0
 
@@ -374,11 +372,10 @@ def smViT_SAI():
 
     # train & validation
     for epoch in range(start_epoch, config.n_epoch):
-        loss, rho_s, rho_p = smViT_train_epoch(config, epoch, model_transformer, model_backbone, train_loader, optimizer, criterion, scheduler)
+        loss, rho_s, rho_p = smViT_train_epoch(config, epoch, model_transformer, model_backbone, train_loader, optimizer, criterion, loss2, scheduler)
 
         if (epoch + 1) % config.val_freq == 0:
-            loss, rho_s, rho_p = smViT_val_epoch(config, epoch, model_transformer, model_backbone, criterion, test_loader)
-
+            loss, rho_s, rho_p = smViT_val_epoch(config, epoch, model_transformer, model_backbone, criterion, loss2, test_loader)
 
 
 if __name__ == '__main__':

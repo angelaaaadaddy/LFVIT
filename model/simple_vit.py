@@ -110,6 +110,7 @@ class Encoder(nn.Module):
     def forward(self, feat_dis_org_embed):
 
         b, c, h, w = feat_dis_org_embed.size()
+        print("b, c, h, w", b, c, h, w)
         feat_dis_org_embed = torch.reshape(feat_dis_org_embed, (b, c, h * w))
         feat_dis_org_embed = feat_dis_org_embed.permute((0, 2, 1))
 
@@ -140,6 +141,7 @@ class VisionTransformer(nn.Module):
 
     def forward(self, feat_dis_org):
         feat_dis_org = self.convenc(feat_dis_org)
+        print("feat_dis_org", feat_dis_org.size())
 
         enc_out = self.encoder(feat_dis_org)
         enc_out = enc_out[:, 0, :]
